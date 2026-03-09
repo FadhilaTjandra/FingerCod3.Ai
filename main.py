@@ -32,20 +32,13 @@ from telegram_bot import run_telegram
 from discord_bot  import run_discord
 
 
-def _run_in_thread(target_fn, name: str) -> threading.Thread:
-    t = threading.Thread(target=target_fn, name=name, daemon=True)
-    t.start()
-    return t
-
-
 def main():
     logger.info("=" * 60)
     logger.info("  FRAMEWORK UNIVERSAL NICHE V1.5 — Build by Fingercod3")
     logger.info("=" * 60)
 
-    # Determine which bots to run
-    run_tg  = bool(os.getenv("TELEGRAM_TOKEN"))
-    run_dc  = bool(os.getenv("DISCORD_TOKEN"))
+    run_tg = bool(os.getenv("TELEGRAM_TOKEN"))
+    run_dc = bool(os.getenv("DISCORD_TOKEN"))
 
     if not run_tg and not run_dc:
         logger.error(
@@ -54,24 +47,30 @@ def main():
         )
         sys.exit(1)
 
-    threads = []
-
-    if run_tg:
-        logger.info("Starting Telegram bot...")
-        threads.append(_run_in_thread(run_telegram, "TelegramBot"))
-
+    # Discord runs in background thread
+    # Telegram's run_polling MUST run in main thread (signal handler requirement)
     if run_dc:
-        logger.info("Starting Discord bot...")
-        threads.append(_run_in_thread(run_discord, "DiscordBot"))
+        logger.info("Starting Discord bot (background thread)...")
+        dc_thread = threading.Thread(target=run_discord, name="DiscordBot", daemon=True)
+        dc_thread.start()
 
-    logger.info(f"{len(threads)} bot(s) running. Press Ctrl+C to stop.")
+    # Telegram runs in main thread
+    if run_tg:
+        logger.info("Starting Telegram bot (main thread)...")
+        try:
+            run_telegram()  # blocks — this is intentional
+        except KeyboardInterrupt:
+            logger.info("Shutting down. Goodbye!")
+            sys.exit(0)
 
-    try:
-        for t in threads:
-            t.join()
-    except KeyboardInterrupt:
-        logger.info("Shutting down. Goodbye!")
-        sys.exit(0)
+    # If only Discord configured, keep main thread alive
+    elif run_dc:
+        logger.info("Only Discord bot running. Press Ctrl+C to stop.")
+        try:
+            dc_thread.join()
+        except KeyboardInterrupt:
+            logger.info("Shutting down. Goodbye!")
+            sys.exit(0)
 
 
 if __name__ == "__main__":
